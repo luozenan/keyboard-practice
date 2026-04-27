@@ -1,0 +1,96 @@
+A: Where do you live?
+B: I live in Pasadena.
+A: Where is Pasadena?
+B: It's in California.
+A: Is it in northern California?
+B: No. It's in southern California.
+A: Is Pasadena a big city?
+B: It's pretty big.
+A: How big is "pretty big"?
+B: It has about 140,000 people.
+A: How big is Los Angeles?
+B: It has about 3 million people.
+A: Do you have a car?
+B: Yes, I do.
+A: What kind of car do you have?
+B: I have a Honda.
+A: Is it new?
+B: It was new in 2003.
+A: So, it's pretty old now.
+B: Yes, it is. But it still looks good.
+A: Do you take good care of it?
+B: Oh, yes. I wash it once a week.
+A: Do you change the oil?
+B: My mechanic changes the oil twice a year.
+A: Do you have a girlfriend?
+B: No, I don't. Do you?
+A: I don't have a girlfriend, either.
+B: Why not?
+A: I don't know. Maybe I'm not rich enough.
+B: Girls like guys with money.
+A: They sure do.
+B: They like guys with new cars.
+A: I don't have money or a new car.
+B: Me, neither.
+A: But girls like guys who are funny.
+B: Maybe we should learn some good jokes.
+A: Where are you going?
+B: I have to walk the dog.
+A: What kind of dog do you have?
+B: I have a little poodle.
+A: Poodles bark a lot.
+B: They sure do.
+A: They bark at everything.
+B: They never shut up.
+A: Why did you get a poodle?
+B: It's my mom's dog.
+A: So she likes poodles.
+B: She says they're good watchdogs.
+A: Can I borrow $5?
+B: Sure. Why do you need it?
+A: I want to buy lunch.
+B: Where's your money?
+A: It's not in my wallet.
+B: Your wallet is empty?
+A: I don't have even one dollar in it.
+B: Being broke is no fun.
+A: Even if it's only for a short while.
+B: It's always good to have friends.
+A: Friends will lend you money when you're broke.
+B: As long as you pay them back.
+A: Let's go to the beach.
+B: That's a great idea.
+A: We haven't been in a while.
+B: We haven't been in a month.
+A: The last time we went, you almost drowned.
+B: No, I didn't.
+A: Then why did the lifeguard dive into the water?
+B: I think he wanted to cool off.
+A: He swam right up to you.
+B: And then he turned right around.
+A: Maybe you're right.
+B: Maybe we should get going.
+A: Are you married?
+B: No. I'm divorced.
+A: When did you get divorced?
+B: I got divorced two years ago.
+A: Why did you get divorced?
+B: My wife left me.
+A: Why did she leave you?
+B: She said she didn't love me anymore.
+A: Wow! That's terrible.
+B: Yes, it was.
+A: Why didn't she love you anymore?
+B: She fell in love with my best friend.
+A: I'm bored.
+B: What's on TV?
+A: Nothing.
+B: There must be something on TV!
+A: Nothing that's interesting.
+B: What about that new game show?
+A: Which one?
+B: "Deal or No Deal"
+A: Tell me you're joking.
+B: I love that show.
+A: I watched it once. That was enough.
+B: It's on right now. Let's watch it together.

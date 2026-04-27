@@ -22,7 +22,8 @@ struct HighlightRange {
 }
 
 struct GameState {
-    quotes: Vec<String>,
+    words: Vec<String>,
+    dialogues: Vec<String>,
     keyboard_lines: Vec<String>,
     highlight_map: HashMap<char, Vec<HighlightRange>>,
 }
@@ -38,12 +39,14 @@ struct GameData {
     elapsed_secs: f64,
     highlight_ranges: Vec<HighlightRange>,
     keyboard_lines: Vec<String>,
+    mode: String,
     done: bool,
 }
 
 #[derive(Deserialize)]
 struct ClientInput {
     key: String,
+    mode: Option<String>,
 }
 
 fn load_lines(path: &str) -> Vec<String> {
@@ -52,6 +55,32 @@ fn load_lines(path: &str) -> Vec<String> {
         std::process::exit(1);
     });
     content.lines().filter(|l| !l.trim().is_empty()).map(|l| l.to_string()).collect()
+}
+
+fn pick_dialogue(dialogues: &[String], rng: &mut Rng) -> String {
+    let total = dialogues.len();
+    if total == 0 {
+        return String::new();
+    }
+    let odd_count = (total + 1) / 2;
+    let idx = rng.usize(0..odd_count) * 2;
+    let line1 = &dialogues[idx];
+    let line2 = dialogues.get(idx + 1).map(|s| s.as_str()).unwrap_or("");
+    if line2.is_empty() {
+        line1.clone()
+    } else {
+        format!("{}\n{}", line1, line2)
+    }
+}
+
+fn pick_words(words: &[String], rng: &mut Rng) -> String {
+    let total = words.len();
+    if total == 0 {
+        return String::new();
+    }
+    let count = 10.min(total);
+    let start = rng.usize(0..total - count + 1);
+    words[start..start + count].join(" ")
 }
 
 fn build_highlight_map(keyboard_lines: &[String]) -> HashMap<char, Vec<HighlightRange>> {
@@ -96,12 +125,14 @@ fn build_highlight_map(keyboard_lines: &[String]) -> HashMap<char, Vec<Highlight
 
 #[tokio::main]
 async fn main() {
-    let quotes = load_lines("quotes.txt");
+    let words = load_lines("quotes.txt");
+    let dialogues = load_lines("dialogue.txt");
     let keyboard_lines = load_lines("keyboard.txt");
     let highlight_map = build_highlight_map(&keyboard_lines);
 
     let state = Arc::new(GameState {
-        quotes,
+        words,
+        dialogues,
         keyboard_lines,
         highlight_map,
     });
@@ -111,6 +142,7 @@ async fn main() {
         .route("/ws", get(ws_handler))
         .route("/keyboard.txt", get(keyboard_file_handler))
         .route("/quotes.txt", get(quotes_file_handler))
+        .route("/dialogue.txt", get(dialogue_file_handler))
         .route("/typing.ico", get(typing_ico_handler))
         .with_state(state);
 
@@ -135,7 +167,11 @@ async fn keyboard_file_handler(State(state): State<Arc<GameState>>) -> String {
 }
 
 async fn quotes_file_handler(State(state): State<Arc<GameState>>) -> String {
-    state.quotes.join("\n")
+    state.words.join("\n")
+}
+
+async fn dialogue_file_handler(State(state): State<Arc<GameState>>) -> String {
+    state.dialogues.join("\n")
 }
 
 async fn ws_handler(
@@ -158,18 +194,41 @@ async fn handle_socket(socket: WebSocket, state: Arc<GameState>) {
     let mut backspace_count: usize = 0;
     let start = Instant::now();
     let mut rng = Rng::new();
+    let mut mode = String::from("words");
 
-    target_text = state.quotes[rng.usize(0..state.quotes.len())].clone();
+    fn next_target(mode: &str, words: &[String], dialogues: &[String], rng: &mut Rng) -> String {
+        match mode {
+            "dialogue" => pick_dialogue(dialogues, rng),
+            _ => pick_words(words, rng),
+        }
+    }
+
+    target_text = next_target(&mode, &state.words, &state.dialogues, &mut rng);
     target_chars = target_text.chars().collect();
 
-    send_game_data(&sender, &state, &target_text, &target_chars, &typed, total_chars, correct_chars, sentences_done, backspace_count, &start, false).await;
+    send_game_data(&sender, &state, &target_text, &target_chars, &typed, total_chars, correct_chars, sentences_done, backspace_count, &start, &mode, false).await;
 
     while let Some(msg) = receiver.next().await {
         if let Ok(Message::Text(text)) = msg {
             if let Ok(input) = serde_json::from_str::<ClientInput>(&text) {
+                // Mode switch
+                if let Some(new_mode) = &input.mode {
+                    if new_mode != &mode {
+                        mode = new_mode.clone();
+                        typed.clear();
+                        target_text = next_target(&mode, &state.words, &state.dialogues, &mut rng);
+                        target_chars = target_text.chars().collect();
+                        total_chars = 0;
+                        correct_chars = 0;
+                        sentences_done = 0;
+                        backspace_count = 0;
+                        send_game_data(&sender, &state, &target_text, &target_chars, &typed, total_chars, correct_chars, sentences_done, backspace_count, &start, &mode, false).await;
+                        continue;
+                    }
+                }
                 match input.key.as_str() {
                     "Esc" => {
-                        send_game_data(&sender, &state, &target_text, &target_chars, &typed, total_chars, correct_chars, sentences_done, backspace_count, &start, true).await;
+                        send_game_data(&sender, &state, &target_text, &target_chars, &typed, total_chars, correct_chars, sentences_done, backspace_count, &start, &mode, true).await;
                         let _ = sender.lock().await.close().await;
                         return;
                     }
@@ -188,15 +247,14 @@ async fn handle_socket(socket: WebSocket, state: Arc<GameState>) {
                             total_chars += target_chars.len();
                             correct_chars += typed.iter().zip(target_chars.iter()).filter(|(a, b)| **a == **b).count();
                             sentences_done += 1;
-                            // Next sentence
                             typed.clear();
-                            target_text = state.quotes[rng.usize(0..state.quotes.len())].clone();
+                            target_text = next_target(&mode, &state.words, &state.dialogues, &mut rng);
                             target_chars = target_text.chars().collect();
                         }
                     }
                     _ => {}
                 }
-                send_game_data(&sender, &state, &target_text, &target_chars, &typed, total_chars, correct_chars, sentences_done, backspace_count, &start, false).await;
+                send_game_data(&sender, &state, &target_text, &target_chars, &typed, total_chars, correct_chars, sentences_done, backspace_count, &start, &mode, false).await;
             }
         } else if let Ok(Message::Close(_)) = msg {
             break;
@@ -215,6 +273,7 @@ async fn send_game_data(
     sentences_done: usize,
     backspace_count: usize,
     start: &Instant,
+    mode: &str,
     done: bool,
 ) {
     let nk = if !done && typed.len() < target_chars.len() {
@@ -238,6 +297,7 @@ async fn send_game_data(
         elapsed_secs: start.elapsed().as_secs_f64(),
         highlight_ranges,
         keyboard_lines: state.keyboard_lines.clone(),
+        mode: mode.to_string(),
         done,
     };
 

@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Typing Game</title>
+<title>打字练习</title>
 <link rel="icon" href="/typing.ico">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -31,15 +31,6 @@ body {
   text-align: center;
 }
 
-/* Book */
-.book {
-  font-family: 'Courier New', monospace;
-  font-size: 18px;
-  line-height: 1.6;
-  color: #c0c0c0;
-  white-space: pre;
-}
-
 /* Target text line */
 .target-line {
   font-family: 'Courier New', monospace;
@@ -65,6 +56,29 @@ body {
   background: #eab308;
   color: #000;
   border-radius: 2px;
+}
+
+/* Mode buttons */
+.mode-buttons {
+  display: flex;
+  gap: 12px;
+}
+.mode-btn {
+  font-family: inherit;
+  font-size: 15px;
+  padding: 8px 24px;
+  border: 1px solid #555;
+  border-radius: 6px;
+  background: transparent;
+  color: #aaa;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.mode-btn:hover { border-color: #eab308; color: #eab308; }
+.mode-btn.active {
+  background: #eab308;
+  color: #000;
+  border-color: #eab308;
 }
 
 /* Footer hint */
@@ -118,26 +132,30 @@ body {
 <body>
 <div class="container">
   <div class="stats" id="stats"></div>
-  <div class="book" id="book"></div>
   <div class="target-line" id="targetLine"></div>
   <div class="keyboard" id="keyboard"></div>
-  <div class="hint">Press Esc to finish | Backspace to correct</div>
+  <div class="mode-buttons">
+    <button class="mode-btn active" data-mode="words" onclick="switchMode('words')">单词模式</button>
+    <button class="mode-btn" data-mode="dialogue" onclick="switchMode('dialogue')">对话模式</button>
+  </div>
+  <div class="hint">按 Esc 结束 | Backspace 退格</div>
 </div>
 <div class="final-stats" id="finalStats">
   <div class="final-box">
-    <h2>Done! Final Statistics</h2>
+    <h2>完成！最终统计</h2>
     <p id="finalSentences"></p>
     <p id="finalChars"></p>
     <p id="finalCorrect"></p>
     <p id="finalBackspaces"></p>
     <p id="finalAccuracy"></p>
     <p id="finalSpeed"></p>
-    <button onclick="location.reload()">Play Again</button>
+    <button onclick="location.reload()">再来一次</button>
   </div>
 </div>
 
 <script>
 let ws = null;
+let currentMode = 'words';
 
 function connect() {
   ws = new WebSocket((location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws');
@@ -155,24 +173,12 @@ function connect() {
 }
 
 function updateUI(data) {
-  // Stats
+  const modeLabel = data.mode === 'dialogue' ? '对话' : '单词';
   const accuracy = data.total_chars > 0
     ? (data.correct_chars / data.total_chars * 100).toFixed(1)
     : '100.0';
   document.getElementById('stats').textContent =
-    `Sentences: ${data.sentences_done} | Accuracy: ${accuracy}% | Characters: ${data.total_chars} | Backspaces: ${data.backspace_count}`;
-
-  // Book
-  const display = data.target_text.length > 48
-    ? data.target_text.slice(0, 48) + '…'
-    : data.target_text;
-  const bookLines = [
-    '   ___________________________________________________',
-    '  /                                                   \\',
-    ` |  ${display.padEnd(49)}|`,
-    '  \\___________________________________________________/',
-  ];
-  document.getElementById('book').textContent = bookLines.join('\n');
+    `模式: ${modeLabel} | 句子: ${data.sentences_done} | 正确率: ${accuracy}% | 字符: ${data.total_chars} | 退格: ${data.backspace_count}`;
 
   // Target line with colors
   let html = '';
@@ -224,12 +230,12 @@ function showFinalStats(data) {
     ? Math.round(data.total_chars / elapsed * 60)
     : 0;
 
-  document.getElementById('finalSentences').textContent = `Sentences completed: ${data.sentences_done}`;
-  document.getElementById('finalChars').textContent = `Total characters typed: ${data.total_chars}`;
-  document.getElementById('finalCorrect').textContent = `Correct: ${data.correct_chars}`;
-  document.getElementById('finalAccuracy').textContent = `Accuracy: ${accuracy}%`;
-  document.getElementById('finalBackspaces').textContent = `Backspaces: ${data.backspace_count}`;
-  document.getElementById('finalSpeed').textContent = `Speed: ${cpm} CPM`;
+  document.getElementById('finalSentences').textContent = `完成句子: ${data.sentences_done}`;
+  document.getElementById('finalChars').textContent = `总输入字符: ${data.total_chars}`;
+  document.getElementById('finalCorrect').textContent = `正确字符: ${data.correct_chars}`;
+  document.getElementById('finalAccuracy').textContent = `正确率: ${accuracy}%`;
+  document.getElementById('finalBackspaces').textContent = `退格次数: ${data.backspace_count}`;
+  document.getElementById('finalSpeed').textContent = `速度: ${cpm} CPM`;
   document.getElementById('finalStats').classList.add('show');
 }
 
@@ -239,7 +245,16 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
-// Keyboard input
+function switchMode(mode) {
+  currentMode = mode;
+  document.querySelectorAll('.mode-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === mode);
+  });
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ key: '', mode }));
+  }
+}
+
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') {
     sendKey('Esc');
@@ -258,7 +273,7 @@ document.addEventListener('keydown', function(e) {
 
 function sendKey(key) {
   if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ key }));
+    ws.send(JSON.stringify({ key, mode: null }));
   }
 }
 
