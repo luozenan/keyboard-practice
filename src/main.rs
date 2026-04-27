@@ -111,6 +111,7 @@ async fn main() {
         .route("/ws", get(ws_handler))
         .route("/keyboard.txt", get(keyboard_file_handler))
         .route("/quotes.txt", get(quotes_file_handler))
+        .route("/typing.ico", get(typing_ico_handler))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:30001").await.unwrap();
@@ -120,6 +121,13 @@ async fn main() {
 
 async fn index_handler() -> Html<&'static str> {
     Html(include_str!("../static/index.html"))
+}
+
+async fn typing_ico_handler() -> impl axum::response::IntoResponse {
+    (
+        [("Content-Type", "image/x-icon")],
+        include_bytes!("../static/typing.ico"),
+    )
 }
 
 async fn keyboard_file_handler(State(state): State<Arc<GameState>>) -> String {
