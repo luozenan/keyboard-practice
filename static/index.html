@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Typing Game</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #1a1a2e;
+  color: #e0e0e0;
+  font-family: 'Courier New', monospace;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+  min-height: 100vh;
+}
+.container {
+  max-width: 1000px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.stats {
+  font-size: 14px;
+  color: #aaa;
+  margin-bottom: 16px;
+  text-align: center;
+}
+
+/* Book */
+.book {
+  font-family: 'Courier New', monospace;
+  font-size: 14px;
+  line-height: 1.4;
+  color: #c0c0c0;
+  margin-bottom: 12px;
+  white-space: pre;
+}
+
+/* Target text line */
+.target-line {
+  font-family: 'Courier New', monospace;
+  font-size: 18px;
+  line-height: 1.8;
+  margin-bottom: 20px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  text-align: center;
+}
+.target-line .correct { color: #4ade80; }
+.target-line .wrong { color: #f87171; }
+.target-line .pending { color: #9ca3af; }
+
+/* Keyboard */
+.keyboard {
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre;
+}
+.key-row { white-space: pre; }
+.key-highlight {
+  background: #eab308;
+  color: #000;
+  border-radius: 2px;
+}
+
+/* Footer hint */
+.hint {
+  margin-top: 16px;
+  font-size: 12px;
+  color: #666;
+  text-align: center;
+}
+
+/* Final stats overlay */
+.final-stats {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.85);
+  justify-content: center;
+  align-items: center;
+  z-index: 100;
+}
+.final-stats.show { display: flex; }
+.final-box {
+  background: #16213e;
+  padding: 40px 60px;
+  border-radius: 12px;
+  text-align: center;
+  border: 1px solid #eab308;
+}
+.final-box h2 {
+  font-size: 24px;
+  margin-bottom: 20px;
+  color: #eab308;
+}
+.final-box p {
+  font-size: 16px;
+  margin: 8px 0;
+}
+.final-box button {
+  margin-top: 24px;
+  padding: 10px 32px;
+  font-size: 16px;
+  border: none;
+  border-radius: 6px;
+  background: #eab308;
+  color: #000;
+  cursor: pointer;
+  font-family: inherit;
+}
+.final-box button:hover { background: #facc15; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="stats" id="stats"></div>
+  <div class="book" id="book"></div>
+  <div class="target-line" id="targetLine"></div>
+  <div class="keyboard" id="keyboard"></div>
+  <div class="hint">Press Esc to finish | Backspace to correct</div>
+</div>
+<div class="final-stats" id="finalStats">
+  <div class="final-box">
+    <h2>Done! Final Statistics</h2>
+    <p id="finalSentences"></p>
+    <p id="finalChars"></p>
+    <p id="finalCorrect"></p>
+    <p id="finalBackspaces"></p>
+    <p id="finalAccuracy"></p>
+    <p id="finalSpeed"></p>
+    <button onclick="location.reload()">Play Again</button>
+  </div>
+</div>
+
+<script>
+let ws = null;
+
+function connect() {
+  ws = new WebSocket((location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws');
+  ws.onmessage = function(event) {
+    const data = JSON.parse(event.data);
+    if (data.done) {
+      showFinalStats(data);
+      return;
+    }
+    updateUI(data);
+  };
+  ws.onclose = function() {
+    setTimeout(connect, 1000);
+  };
+}
+
+function updateUI(data) {
+  // Stats
+  const accuracy = data.total_chars > 0
+    ? (data.correct_chars / data.total_chars * 100).toFixed(1)
+    : '100.0';
+  document.getElementById('stats').textContent =
+    `Sentences: ${data.sentences_done} | Accuracy: ${accuracy}% | Characters: ${data.total_chars} | Backspaces: ${data.backspace_count}`;
+
+  // Book
+  const display = data.target_text.length > 48
+    ? data.target_text.slice(0, 48) + '…'
+    : data.target_text;
+  const bookLines = [
+    '   ___________________________________________________',
+    '  /                                                   \\',
+    ` |  ${display.padEnd(49)}|`,
+    '  \\___________________________________________________/',
+  ];
+  document.getElementById('book').textContent = bookLines.join('\n');
+
+  // Target line with colors
+  let html = '';
+  for (let i = 0; i < data.target_text.length; i++) {
+    const tc = data.target_text[i];
+    if (i < data.typed.length) {
+      const t = data.typed[i];
+      const cls = t === tc ? 'correct' : 'wrong';
+      html += `<span class="${cls}">${escapeHtml(t)}</span>`;
+    } else {
+      html += `<span class="pending">${escapeHtml(tc)}</span>`;
+    }
+  }
+  document.getElementById('targetLine').innerHTML = html;
+
+  // Keyboard
+  const highlightSet = new Set();
+  for (const r of data.highlight_ranges) {
+    const row = r.row;
+    for (let c = r.left; c <= r.right; c++) {
+      highlightSet.add(row + ':' + c);
+    }
+  }
+
+  let kbHtml = '';
+  for (let ri = 0; ri < data.keyboard_lines.length; ri++) {
+    const line = data.keyboard_lines[ri];
+    let rowHtml = '<div class="key-row">';
+    for (let ci = 0; ci < line.length; ci++) {
+      const ch = line[ci];
+      if (highlightSet.has(ri + ':' + ci)) {
+        rowHtml += `<span class="key-highlight">${escapeHtml(ch)}</span>`;
+      } else {
+        rowHtml += escapeHtml(ch);
+      }
+    }
+    rowHtml += '</div>';
+    kbHtml += rowHtml;
+  }
+  document.getElementById('keyboard').innerHTML = kbHtml;
+}
+
+function showFinalStats(data) {
+  const elapsed = data.elapsed_secs;
+  const accuracy = data.total_chars > 0
+    ? (data.correct_chars / data.total_chars * 100).toFixed(1)
+    : '0.0';
+  const cpm = elapsed > 0
+    ? Math.round(data.total_chars / elapsed * 60)
+    : 0;
+
+  document.getElementById('finalSentences').textContent = `Sentences completed: ${data.sentences_done}`;
+  document.getElementById('finalChars').textContent = `Total characters typed: ${data.total_chars}`;
+  document.getElementById('finalCorrect').textContent = `Correct: ${data.correct_chars}`;
+  document.getElementById('finalAccuracy').textContent = `Accuracy: ${accuracy}%`;
+  document.getElementById('finalBackspaces').textContent = `Backspaces: ${data.backspace_count}`;
+  document.getElementById('finalSpeed').textContent = `Speed: ${cpm} CPM`;
+  document.getElementById('finalStats').classList.add('show');
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// Keyboard input
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    sendKey('Esc');
+    return;
+  }
+  if (e.key === 'Backspace') {
+    sendKey('Backspace');
+    e.preventDefault();
+    return;
+  }
+  if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    sendKey(e.key);
+    e.preventDefault();
+  }
+});
+
+function sendKey(key) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ key }));
+  }
+}
+
+connect();
+</script>
+</body>
+</html>
