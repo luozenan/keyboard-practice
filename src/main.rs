@@ -21,9 +21,17 @@ struct HighlightRange {
     right: u16,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+struct PoetryItem {
+    contents: String,
+    source: String,
+    pinyin: String,
+}
+
 struct GameState {
     words: Vec<String>,
     dialogues: Vec<String>,
+    poems: Vec<PoetryItem>,
     keyboard_lines: Vec<String>,
     highlight_map: HashMap<char, Vec<HighlightRange>>,
 }
@@ -31,6 +39,9 @@ struct GameState {
 #[derive(Serialize)]
 struct GameData {
     target_text: String,
+    pinyin_line: String,
+    pinyin_chars: Vec<char>,
+    source: String,
     typed: Vec<char>,
     total_chars: usize,
     correct_chars: usize,
@@ -55,6 +66,17 @@ fn load_lines(path: &str) -> Vec<String> {
         std::process::exit(1);
     });
     content.lines().filter(|l| !l.trim().is_empty()).map(|l| l.to_string()).collect()
+}
+
+fn load_poems(path: &str) -> Vec<PoetryItem> {
+    let content = fs::read_to_string(path).unwrap_or_else(|_| {
+        eprintln!("Error: cannot read file '{}'", path);
+        std::process::exit(1);
+    });
+    serde_json::from_str(&content).unwrap_or_else(|e| {
+        eprintln!("Error parsing {}: {}", path, e);
+        std::process::exit(1);
+    })
 }
 
 fn pick_dialogue(dialogues: &[String], rng: &mut Rng) -> String {
@@ -127,12 +149,14 @@ fn build_highlight_map(keyboard_lines: &[String]) -> HashMap<char, Vec<Highlight
 async fn main() {
     let words = load_lines("quotes.txt");
     let dialogues = load_lines("dialogue.txt");
+    let poems = load_poems("mingju.json");
     let keyboard_lines = load_lines("keyboard.txt");
     let highlight_map = build_highlight_map(&keyboard_lines);
 
     let state = Arc::new(GameState {
         words,
         dialogues,
+        poems,
         keyboard_lines,
         highlight_map,
     });
@@ -188,6 +212,8 @@ async fn handle_socket(socket: WebSocket, state: Arc<GameState>) {
     let mut typed: Vec<char> = Vec::new();
     let mut target_text: String;
     let mut target_chars: Vec<char>;
+    let mut pinyin_line: String;
+    let mut source: String;
     let mut total_chars: usize = 0;
     let mut correct_chars: usize = 0;
     let mut sentences_done: usize = 0;
@@ -196,39 +222,90 @@ async fn handle_socket(socket: WebSocket, state: Arc<GameState>) {
     let mut rng = Rng::new();
     let mut mode = String::from("words");
 
-    fn next_target(mode: &str, words: &[String], dialogues: &[String], rng: &mut Rng) -> String {
+    fn pick_poem(poems: &[PoetryItem], rng: &mut Rng) -> (String, String, String) {
+        let idx = rng.usize(0..poems.len());
+        let item = &poems[idx];
+        (item.contents.clone(), item.pinyin.clone(), item.source.clone())
+    }
+
+    fn next_target(mode: &str, words: &[String], dialogues: &[String], poems: &[PoetryItem], rng: &mut Rng) -> (String, String, String) {
         match mode {
-            "dialogue" => pick_dialogue(dialogues, rng),
-            _ => pick_words(words, rng),
+            "dialogue" => (pick_dialogue(dialogues, rng), String::new(), String::new()),
+            "poetry" => pick_poem(poems, rng),
+            _ => (pick_words(words, rng), String::new(), String::new()),
         }
     }
 
-    target_text = next_target(&mode, &state.words, &state.dialogues, &mut rng);
-    target_chars = target_text.chars().collect();
+    let (t, p, s) = next_target(&mode, &state.words, &state.dialogues, &state.poems, &mut rng);
+    if mode == "poetry" {
+        target_text = t;
+        pinyin_line = p;
+        // Filter: keep only ASCII letters and spaces, collapse multiple spaces
+        let filtered: String = pinyin_line.chars().filter(|c| c.is_ascii_alphabetic() || *c == ' ').collect();
+        let mut collapsed = String::new();
+        let mut prev_space = false;
+        for c in filtered.chars() {
+            if c == ' ' {
+                if !prev_space {
+                    collapsed.push(c);
+                }
+                prev_space = true;
+            } else {
+                collapsed.push(c);
+                prev_space = false;
+            }
+        }
+        target_chars = collapsed.chars().collect();
+    } else {
+        target_text = t;
+        target_chars = target_text.chars().collect();
+        pinyin_line = p;
+    }
+    source = s;
 
-    send_game_data(&sender, &state, &target_text, &target_chars, &typed, total_chars, correct_chars, sentences_done, backspace_count, &start, &mode, false).await;
+    send_game_data(&sender, &state, &target_text, &pinyin_line, &source, &target_chars, &typed, total_chars, correct_chars, sentences_done, backspace_count, &start, &mode, false).await;
 
     while let Some(msg) = receiver.next().await {
         if let Ok(Message::Text(text)) = msg {
             if let Ok(input) = serde_json::from_str::<ClientInput>(&text) {
-                // Mode switch
                 if let Some(new_mode) = &input.mode {
                     if new_mode != &mode {
                         mode = new_mode.clone();
                         typed.clear();
-                        target_text = next_target(&mode, &state.words, &state.dialogues, &mut rng);
-                        target_chars = target_text.chars().collect();
+                        let (t, p, s) = next_target(&mode, &state.words, &state.dialogues, &state.poems, &mut rng);
+                        if mode == "poetry" {
+                            target_text = t;
+                            pinyin_line = p;
+                            let filtered: String = pinyin_line.chars().filter(|c| c.is_ascii_alphabetic() || *c == ' ').collect();
+                            let mut collapsed = String::new();
+                            let mut prev_space = false;
+                            for c in filtered.chars() {
+                                if c == ' ' {
+                                    if !prev_space { collapsed.push(c); }
+                                    prev_space = true;
+                                } else {
+                                    collapsed.push(c);
+                                    prev_space = false;
+                                }
+                            }
+                            target_chars = collapsed.chars().collect();
+                        } else {
+                            target_text = t;
+                            target_chars = target_text.chars().collect();
+                            pinyin_line = p;
+                        }
+                        source = s;
                         total_chars = 0;
                         correct_chars = 0;
                         sentences_done = 0;
                         backspace_count = 0;
-                        send_game_data(&sender, &state, &target_text, &target_chars, &typed, total_chars, correct_chars, sentences_done, backspace_count, &start, &mode, false).await;
+                        send_game_data(&sender, &state, &target_text, &pinyin_line, &source, &target_chars, &typed, total_chars, correct_chars, sentences_done, backspace_count, &start, &mode, false).await;
                         continue;
                     }
                 }
                 match input.key.as_str() {
                     "Esc" => {
-                        send_game_data(&sender, &state, &target_text, &target_chars, &typed, total_chars, correct_chars, sentences_done, backspace_count, &start, &mode, true).await;
+                        send_game_data(&sender, &state, &target_text, &pinyin_line, &source, &target_chars, &typed, total_chars, correct_chars, sentences_done, backspace_count, &start, &mode, true).await;
                         let _ = sender.lock().await.close().await;
                         return;
                     }
@@ -248,13 +325,34 @@ async fn handle_socket(socket: WebSocket, state: Arc<GameState>) {
                             correct_chars += typed.iter().zip(target_chars.iter()).filter(|(a, b)| **a == **b).count();
                             sentences_done += 1;
                             typed.clear();
-                            target_text = next_target(&mode, &state.words, &state.dialogues, &mut rng);
-                            target_chars = target_text.chars().collect();
+                            let (t, p, s) = next_target(&mode, &state.words, &state.dialogues, &state.poems, &mut rng);
+                            if mode == "poetry" {
+                                target_text = t;
+                                pinyin_line = p;
+                                let filtered: String = pinyin_line.chars().filter(|c| c.is_ascii_alphabetic() || *c == ' ').collect();
+                                let mut collapsed = String::new();
+                                let mut prev_space = false;
+                                for c in filtered.chars() {
+                                    if c == ' ' {
+                                        if !prev_space { collapsed.push(c); }
+                                        prev_space = true;
+                                    } else {
+                                        collapsed.push(c);
+                                        prev_space = false;
+                                    }
+                                }
+                                target_chars = collapsed.chars().collect();
+                            } else {
+                                target_text = t;
+                                target_chars = target_text.chars().collect();
+                                pinyin_line = p;
+                            }
+                            source = s;
                         }
                     }
                     _ => {}
                 }
-                send_game_data(&sender, &state, &target_text, &target_chars, &typed, total_chars, correct_chars, sentences_done, backspace_count, &start, &mode, false).await;
+                send_game_data(&sender, &state, &target_text, &pinyin_line, &source, &target_chars, &typed, total_chars, correct_chars, sentences_done, backspace_count, &start, &mode, false).await;
             }
         } else if let Ok(Message::Close(_)) = msg {
             break;
@@ -266,6 +364,8 @@ async fn send_game_data(
     sender: &Arc<Mutex<SplitSink<WebSocket, Message>>>,
     state: &GameState,
     target_text: &str,
+    pinyin_line: &str,
+    source: &str,
     target_chars: &[char],
     typed: &[char],
     total_chars: usize,
@@ -289,6 +389,9 @@ async fn send_game_data(
 
     let data = GameData {
         target_text: target_text.to_string(),
+        pinyin_line: pinyin_line.to_string(),
+        pinyin_chars: target_chars.to_vec(),
+        source: source.to_string(),
         typed: typed.to_vec(),
         total_chars,
         correct_chars,

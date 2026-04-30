@@ -31,6 +31,46 @@ body {
   text-align: center;
 }
 
+/* Pinyin table */
+.poetry-table {
+  display: table;
+  margin: 0 auto;
+  border-collapse: collapse;
+}
+.poetry-table .table-row {
+  display: table-row;
+}
+.poetry-table .table-cell {
+  display: table-cell;
+  text-align: center;
+  padding: 0 4px;
+}
+.poetry-table .py-cell {
+  font-size: 18px;
+  color: #facc15;
+}
+.poetry-table .char-cell {
+  font-size: 24px;
+  color: #e0e0e0;
+}
+.poetry-table .py-cell.correct { color: #4ade80; }
+.poetry-table .py-cell.wrong { color: #f87171; }
+.poetry-table .py-cell.pending { color: #facc15; }
+
+/* Poetry display */
+.poetry-block {
+  position: relative;
+  text-align: center;
+  max-width: 100%;
+}
+.poetry-source {
+  font-size: 14px;
+  color: #888;
+  text-align: right;
+  margin-top: 2px;
+  margin-right: 10px;
+}
+
 /* Target text line */
 .target-line {
   font-family: 'Courier New', monospace;
@@ -132,11 +172,16 @@ body {
 <body>
 <div class="container">
   <div class="stats" id="stats"></div>
-  <div class="target-line" id="targetLine"></div>
+  <div class="pinyin-line" id="pinyinLine"></div>
+  <div class="poetry-block" id="poetryBlock">
+    <div class="target-line" id="targetLine"></div>
+    <div class="poetry-source" id="sourceLine"></div>
+  </div>
   <div class="keyboard" id="keyboard"></div>
   <div class="mode-buttons">
     <button class="mode-btn active" data-mode="words" onclick="switchMode('words')">单词模式</button>
     <button class="mode-btn" data-mode="dialogue" onclick="switchMode('dialogue')">对话模式</button>
+    <button class="mode-btn" data-mode="poetry" onclick="switchMode('poetry')">诗词模式</button>
   </div>
   <div class="hint">按 Esc 结束 | Backspace 退格</div>
 </div>
@@ -173,26 +218,109 @@ function connect() {
 }
 
 function updateUI(data) {
-  const modeLabel = data.mode === 'dialogue' ? '对话' : '单词';
+  const isPoetry = data.mode === 'poetry';
+
+  // Stats
+  const modeLabel = { words: '单词', dialogue: '对话', poetry: '诗词' }[data.mode] || data.mode;
   const accuracy = data.total_chars > 0
     ? (data.correct_chars / data.total_chars * 100).toFixed(1)
     : '100.0';
   document.getElementById('stats').textContent =
     `模式: ${modeLabel} | 句子: ${data.sentences_done} | 正确率: ${accuracy}% | 字符: ${data.total_chars} | 退格: ${data.backspace_count}`;
 
-  // Target line with colors
-  let html = '';
-  for (let i = 0; i < data.target_text.length; i++) {
-    const tc = data.target_text[i];
-    if (i < data.typed.length) {
-      const t = data.typed[i];
-      const cls = t === tc ? 'correct' : 'wrong';
-      html += `<span class="${cls}">${escapeHtml(t)}</span>`;
-    } else {
-      html += `<span class="pending">${escapeHtml(tc)}</span>`;
+  // Pinyin line (only for poetry mode)
+  const pinyinEl = document.getElementById('pinyinLine');
+  pinyinEl.style.display = isPoetry ? 'block' : 'none';
+  const sourceEl = document.getElementById('sourceLine');
+  sourceEl.style.display = isPoetry ? 'block' : 'none';
+
+  if (isPoetry) {
+    sourceEl.textContent = data.source;
+
+    // Build character-by-character poetry display with pinyin above each char
+    const chars = data.target_text.split('');
+    const pinyins = data.pinyin_line.split(' ');
+
+    while (pinyins.length < chars.length) pinyins.push('');
+
+    // Build a per-cell typed-offset mapping
+    let pinyinChars = data.pinyin_chars || [];
+
+    let tableHtml = '<div class="poetry-table">';
+    // Pinyin row - each syllable colored char by char using pinyin_chars
+    tableHtml += '<div class="table-row">';
+    let pos = 0;
+    for (let i = 0; i < chars.length; i++) {
+      const py = pinyins[i];
+
+      // Check if this syllable is just punctuation (not in pinyin_chars)
+      const isPunct = py.length > 0 && !/[a-zA-Z]/.test(py);
+
+      if (i > 0 && !isPunct) {
+        // Space between syllables — add a space cell
+        let spaceCls = '';
+        if (pos < data.typed.length) {
+          const t = data.typed[pos];
+          spaceCls = t === ' ' ? 'correct' : 'wrong';
+        } else {
+          spaceCls = 'pending';
+        }
+        tableHtml += `<div class="py-cell table-cell">${escapeHtml(' ')}</div>`;
+        pos += 1;
+      }
+
+      let cellHtml = '';
+      if (isPunct) {
+        // Show punctuation as-is, no color
+        cellHtml = escapeHtml(py);
+      } else {
+        for (let j = 0; j < py.length; j++) {
+          const pyChar = py[j];
+          let cls = '';
+          if (pos < data.typed.length) {
+            const t = data.typed[pos];
+            cls = t === pyChar ? 'correct' : 'wrong';
+          } else {
+            cls = 'pending';
+          }
+          cellHtml += `<span class="${cls}">${escapeHtml(pyChar)}</span>`;
+          pos += 1;
+        }
+      }
+      tableHtml += `<div class="py-cell table-cell">${cellHtml}</div>`;
     }
+    tableHtml += '</div>';
+    // Character row (always white, no coloring)
+    tableHtml += '<div class="table-row">';
+    for (let i = 0; i < chars.length; i++) {
+      const py = pinyins[i];
+      const isPunct = py.length > 0 && !/[a-zA-Z]/.test(py);
+      if (i > 0 && !isPunct) {
+        tableHtml += `<div class="char-cell table-cell">&nbsp;</div>`;
+      }
+      tableHtml += `<div class="char-cell table-cell">${escapeHtml(chars[i])}</div>`;
+    }
+    tableHtml += '</div>';
+    tableHtml += '</div>';
+
+    pinyinEl.style.display = 'none';
+    document.getElementById('targetLine').innerHTML = tableHtml;
+  } else {
+    // Normal mode: single target line with colors
+    let html = '';
+    for (let i = 0; i < data.target_text.length; i++) {
+      const tc = data.target_text[i];
+      if (i < data.typed.length) {
+        const t = data.typed[i];
+        const cls = t === tc ? 'correct' : 'wrong';
+        html += `<span class="${cls}">${escapeHtml(t)}</span>`;
+      } else {
+        html += `<span class="pending">${escapeHtml(tc)}</span>`;
+      }
+    }
+    document.getElementById('targetLine').innerHTML = html;
+    document.getElementById('targetLine').className = 'target-line';
   }
-  document.getElementById('targetLine').innerHTML = html;
 
   // Keyboard
   const highlightSet = new Set();
