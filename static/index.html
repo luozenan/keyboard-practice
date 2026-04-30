@@ -274,12 +274,18 @@ function updateUI(data) {
 
   // Pinyin line (only for poetry mode)
   const pinyinEl = document.getElementById('pinyinLine');
-  pinyinEl.style.display = isPoetry ? 'block' : 'none';
+  if (isPoetry) {
+    pinyinEl.style.display = 'none';
+  } else {
+    pinyinEl.style.display = 'none';
+  }
   const sourceEl = document.getElementById('sourceLine');
-  sourceEl.style.display = isPoetry || isDialogue ? 'block' : 'none';
-
+  sourceEl.style.display = isPoetry ? 'block' : 'none';
   if (isPoetry) {
     sourceEl.textContent = data.source;
+  }
+
+  if (isPoetry) {
 
     // Build character-by-character poetry display with pinyin above each char
     const chars = data.target_text.split('');
@@ -349,11 +355,6 @@ function updateUI(data) {
 
     pinyinEl.style.display = 'none';
     document.getElementById('targetLine').innerHTML = tableHtml;
-    // Show source for dialogue mode too (the A:/B: version)
-    sourceEl.style.display = isDialogue ? 'block' : 'none';
-    if (isDialogue) {
-      sourceEl.textContent = data.source;
-    }
   } else {
     // Normal mode: single target line with colors
     let html = '';

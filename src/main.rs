@@ -232,7 +232,6 @@ async fn handle_socket(socket: WebSocket, state: Arc<GameState>) {
         match mode {
             "dialogue" => {
                 let raw = pick_dialogue(dialogues, rng);
-                // Strip "A: " and "B: " prefixes, replace \n with space
                 let cleaned = raw
                     .lines()
                     .map(|l| {
