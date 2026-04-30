@@ -230,24 +230,36 @@ async fn handle_socket(socket: WebSocket, state: Arc<GameState>) {
 
     fn next_target(mode: &str, words: &[String], dialogues: &[String], poems: &[PoetryItem], rng: &mut Rng) -> (String, String, String) {
         match mode {
-            "dialogue" => (pick_dialogue(dialogues, rng), String::new(), String::new()),
+            "dialogue" => {
+                let raw = pick_dialogue(dialogues, rng);
+                // Strip "A: " and "B: " prefixes, replace \n with space
+                let cleaned = raw
+                    .lines()
+                    .map(|l| {
+                        if l.len() > 3 && (l.starts_with("A: ") || l.starts_with("B: ")) {
+                            &l[3..]
+                        } else {
+                            l
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                let display = cleaned.clone();
+                (display, String::new(), raw)
+            }
             "poetry" => pick_poem(poems, rng),
             _ => (pick_words(words, rng), String::new(), String::new()),
         }
     }
 
-    let (t, p, s) = next_target(&mode, &state.words, &state.dialogues, &state.poems, &mut rng);
-    if mode == "poetry" {
-        target_text = t;
-        pinyin_line = p;
-        // Filter: keep only ASCII letters and spaces, collapse multiple spaces
-        let filtered: String = pinyin_line.chars().filter(|c| c.is_ascii_alphabetic() || *c == ' ').collect();
+    fn filter_target(s: &str) -> Vec<char> {
+        let filtered: String = s.chars().filter(|c| c.is_ascii_alphabetic() || *c == ' ' || *c == '\n').collect();
         let mut collapsed = String::new();
         let mut prev_space = false;
         for c in filtered.chars() {
-            if c == ' ' {
+            if c == ' ' || c == '\n' {
                 if !prev_space {
-                    collapsed.push(c);
+                    collapsed.push(' ');
                 }
                 prev_space = true;
             } else {
@@ -255,7 +267,18 @@ async fn handle_socket(socket: WebSocket, state: Arc<GameState>) {
                 prev_space = false;
             }
         }
-        target_chars = collapsed.chars().collect();
+        collapsed.chars().collect()
+    }
+
+    let (t, p, s) = next_target(&mode, &state.words, &state.dialogues, &state.poems, &mut rng);
+    if mode == "poetry" {
+        target_text = t;
+        pinyin_line = p;
+        target_chars = filter_target(&pinyin_line);
+    } else if mode == "dialogue" {
+        target_text = t;
+        target_chars = target_text.chars().collect();
+        pinyin_line = p;
     } else {
         target_text = t;
         target_chars = target_text.chars().collect();
@@ -276,19 +299,11 @@ async fn handle_socket(socket: WebSocket, state: Arc<GameState>) {
                         if mode == "poetry" {
                             target_text = t;
                             pinyin_line = p;
-                            let filtered: String = pinyin_line.chars().filter(|c| c.is_ascii_alphabetic() || *c == ' ').collect();
-                            let mut collapsed = String::new();
-                            let mut prev_space = false;
-                            for c in filtered.chars() {
-                                if c == ' ' {
-                                    if !prev_space { collapsed.push(c); }
-                                    prev_space = true;
-                                } else {
-                                    collapsed.push(c);
-                                    prev_space = false;
-                                }
-                            }
-                            target_chars = collapsed.chars().collect();
+                            target_chars = filter_target(&pinyin_line);
+                        } else if mode == "dialogue" {
+                            target_text = t;
+                            target_chars = target_text.chars().collect();
+                            pinyin_line = p;
                         } else {
                             target_text = t;
                             target_chars = target_text.chars().collect();
@@ -315,6 +330,24 @@ async fn handle_socket(socket: WebSocket, state: Arc<GameState>) {
                             backspace_count += 1;
                         }
                     }
+                    "Shuffle" => {
+                        typed.clear();
+                        let (t, p, s) = next_target(&mode, &state.words, &state.dialogues, &state.poems, &mut rng);
+                        if mode == "poetry" {
+                            target_text = t;
+                            pinyin_line = p;
+                            target_chars = filter_target(&pinyin_line);
+                        } else if mode == "dialogue" {
+                            target_text = t;
+                            target_chars = target_text.chars().collect();
+                            pinyin_line = p;
+                        } else {
+                            target_text = t;
+                            target_chars = target_text.chars().collect();
+                            pinyin_line = p;
+                        }
+                        source = s;
+                    }
                     c if c.len() == 1 => {
                         let ch = c.chars().next().unwrap();
                         if typed.len() < target_chars.len() {
@@ -326,27 +359,19 @@ async fn handle_socket(socket: WebSocket, state: Arc<GameState>) {
                             sentences_done += 1;
                             typed.clear();
                             let (t, p, s) = next_target(&mode, &state.words, &state.dialogues, &state.poems, &mut rng);
-                            if mode == "poetry" {
-                                target_text = t;
-                                pinyin_line = p;
-                                let filtered: String = pinyin_line.chars().filter(|c| c.is_ascii_alphabetic() || *c == ' ').collect();
-                                let mut collapsed = String::new();
-                                let mut prev_space = false;
-                                for c in filtered.chars() {
-                                    if c == ' ' {
-                                        if !prev_space { collapsed.push(c); }
-                                        prev_space = true;
-                                    } else {
-                                        collapsed.push(c);
-                                        prev_space = false;
-                                    }
-                                }
-                                target_chars = collapsed.chars().collect();
-                            } else {
-                                target_text = t;
-                                target_chars = target_text.chars().collect();
-                                pinyin_line = p;
-                            }
+                        if mode == "poetry" {
+                            target_text = t;
+                            pinyin_line = p;
+                            target_chars = filter_target(&pinyin_line);
+                        } else if mode == "dialogue" {
+                            target_text = t;
+                            target_chars = target_text.chars().collect();
+                            pinyin_line = p;
+                        } else {
+                            target_text = t;
+                            target_chars = target_text.chars().collect();
+                            pinyin_line = p;
+                        }
                             source = s;
                         }
                     }

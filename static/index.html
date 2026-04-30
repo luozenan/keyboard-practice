@@ -103,7 +103,40 @@ body {
 .mode-buttons {
   display: flex;
   gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
 }
+.mode-btn {
+  font-family: inherit;
+  font-size: 15px;
+  padding: 8px 24px;
+  border: 1px solid #555;
+  border-radius: 6px;
+  background: transparent;
+  color: #aaa;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.mode-btn:hover { border-color: #eab308; color: #eab308; }
+.mode-btn.active {
+  background: #eab308;
+  color: #000;
+  border-color: #eab308;
+}
+.shuffle-btn {
+  font-family: inherit;
+  font-size: 15px;
+  padding: 8px 20px;
+  border: 1px solid #555;
+  border-radius: 6px;
+  background: transparent;
+  color: #aaa;
+  cursor: pointer;
+  margin-left: 8px;
+  transition: all 0.2s;
+}
+.shuffle-btn:hover { border-color: #4ade80; color: #4ade80; background: rgba(74,222,128,0.1); }
 .mode-btn {
   font-family: inherit;
   font-size: 15px;
@@ -183,6 +216,7 @@ body {
     <button class="mode-btn active" data-mode="words" onclick="switchMode('words')">单词模式</button>
     <button class="mode-btn" data-mode="dialogue" onclick="switchMode('dialogue')">对话模式</button>
     <button class="mode-btn" data-mode="poetry" onclick="switchMode('poetry')">诗词模式</button>
+    <button class="shuffle-btn" onclick="shuffle()">🎲 换一换</button>
   </div>
   <div class="hint">按 Esc 结束 | Backspace 退格</div>
 </div>
@@ -220,6 +254,7 @@ function connect() {
 
 function updateUI(data) {
   const isPoetry = data.mode === 'poetry';
+  const isDialogue = data.mode === 'dialogue';
 
   // Stats
   const modeLabel = { words: '单词', dialogue: '对话', poetry: '诗词' }[data.mode] || data.mode;
@@ -233,7 +268,7 @@ function updateUI(data) {
   const pinyinEl = document.getElementById('pinyinLine');
   pinyinEl.style.display = isPoetry ? 'block' : 'none';
   const sourceEl = document.getElementById('sourceLine');
-  sourceEl.style.display = isPoetry ? 'block' : 'none';
+  sourceEl.style.display = isPoetry || isDialogue ? 'block' : 'none';
 
   if (isPoetry) {
     sourceEl.textContent = data.source;
@@ -306,6 +341,11 @@ function updateUI(data) {
 
     pinyinEl.style.display = 'none';
     document.getElementById('targetLine').innerHTML = tableHtml;
+    // Show source for dialogue mode too (the A:/B: version)
+    sourceEl.style.display = isDialogue ? 'block' : 'none';
+    if (isDialogue) {
+      sourceEl.textContent = data.source;
+    }
   } else {
     // Normal mode: single target line with colors
     let html = '';
@@ -381,6 +421,12 @@ function switchMode(mode) {
   });
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ key: '', mode }));
+  }
+}
+
+function shuffle() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ key: 'Shuffle', mode: null }));
   }
 }
 
