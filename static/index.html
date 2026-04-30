@@ -248,7 +248,15 @@ function connect() {
     updateUI(data);
   };
   ws.onclose = function() {
-    setTimeout(connect, 1000);
+    setTimeout(function() {
+      connect();
+      setTimeout(function() {
+        // Re-send current mode on reconnection
+        if (ws && ws.readyState === WebSocket.OPEN && currentMode !== 'words') {
+          ws.send(JSON.stringify({ key: '', mode: currentMode }));
+        }
+      }, 200);
+    }, 1000);
   };
 }
 
